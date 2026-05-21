@@ -25,9 +25,9 @@ void CueManager::SwitchCue(CueType type) {
     }
 }
 
-void CueManager::UpdateActiveCue(MotionOffset current_offset, float dt) {
+void CueManager::UpdateActiveCue(MotionOffset current_offset, float dt, const CueParams& params) {
     if (m_activeCue) {
-        m_activeCue->Update(current_offset, dt);
+        m_activeCue->Update(current_offset, dt, params);
     }
 }
 

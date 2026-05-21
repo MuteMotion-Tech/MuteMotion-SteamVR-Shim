@@ -10,6 +10,8 @@ public:
 
     bool Initialize(const std::string& key, const std::string& name);
     void SubmitTexture(unsigned int glTextureId);
+    void ShowOverlay();
+    void HideOverlay();
     void Cleanup();
 
 private:

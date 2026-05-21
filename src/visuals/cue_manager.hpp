@@ -21,7 +21,7 @@ public:
     void SwitchCue(CueType type);
 
     // Lifecycle triggers sent from main.cpp
-    void UpdateActiveCue(MotionOffset current_offset, float dt);
+    void UpdateActiveCue(MotionOffset current_offset, float dt, const CueParams& params);
     void DrawActiveCue(int width, int height);
 
 private:

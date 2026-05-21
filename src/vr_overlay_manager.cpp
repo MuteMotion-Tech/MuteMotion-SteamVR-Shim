@@ -67,3 +67,15 @@ void VROverlayManager::Cleanup() {
         m_ulOverlayHandle = vr::k_ulOverlayHandleInvalid;
     }
 }
+
+void VROverlayManager::ShowOverlay() {
+    if (m_ulOverlayHandle != vr::k_ulOverlayHandleInvalid && vr::VROverlay()) {
+        vr::VROverlay()->ShowOverlay(m_ulOverlayHandle);
+    }
+}
+
+void VROverlayManager::HideOverlay() {
+    if (m_ulOverlayHandle != vr::k_ulOverlayHandleInvalid && vr::VROverlay()) {
+        vr::VROverlay()->HideOverlay(m_ulOverlayHandle);
+    }
+}
