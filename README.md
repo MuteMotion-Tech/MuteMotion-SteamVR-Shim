@@ -1,4 +1,5 @@
 # MuteMotion-SteamVR-Shim
+### (alpha version - needs further development)
 
 Official implementation of the **MuteMotion PCVR** shim/layer for SteamVR.
 This repository serves as the technical deliverable for academic auditing at **my university**.
