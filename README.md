@@ -14,7 +14,7 @@ This module bridges hardware IMU data (extracted directly through the OpenVR API
  *<sub>(for now, but may change, any questions don't hesitate to contact me, i don't bite! )</sub>*
 * **Core Logic:** Proprietary / Restricted Research via MuteMotion Tech.
 
-## Team & Roles
+## Author
 
 * **_AstroN0T** - Sole Architect and Lead Developer
   * *Responsibilities:* End-to-end system architecture, C++ overlay daemon (OpenVR integration, rendering pipeline, physics tuning), PySide6 desktop control panel, Flask verification service, infrastructure provisioning, and end-to-end validation.
@@ -22,6 +22,7 @@ This module bridges hardware IMU data (extracted directly through the OpenVR API
 ## Contributions (Academic)
 
 * **Ciago A. (a22405260)**
+  * *Responsibilities:* Contributed to documentation, development of diagrams, presentation support, and mockups.
 * **Henrique F.**
   * *Responsibilities:* Contributed to documentation, development of diagrams, presentation support, and mockups.
 
