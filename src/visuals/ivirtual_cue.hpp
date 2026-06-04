@@ -2,24 +2,23 @@
 
 #include "../vr_sensor_bridge.hpp" // For MotionOffset Definition
 
-// =============================================================================
-// Overlay render parameters — propagated from the Control Panel via IPC
-// =============================================================================
+// renderer params sent by the control panel ui via ipc
 struct CueParams {
-    float intensity;    // Motion multiplier (0.0 = frozen, 1.0 = default, 2.0 = exaggerated)
-    float opacity;      // Visual alpha (0.0 = invisible, 1.0 = fully opaque)
-    bool invertAxis;    // true = opposite-inertia (Apple style), false = direct tracking
+    float intensity;    // vibe multiplier (0.0 = boring, 1.0 = normal, 2.0 = bro chill)
+    float opacity;      // alpha (0.0 = ghosted, 1.0 = thicc)
+    bool invertAxis;    // true = inverted controls (skill issue), false = chad
+    int skinId = 0;     // 0 = default ez, 1 = nyan cat premium swag
 };
 
 class IVisualCue {
 public:
     virtual ~IVisualCue() = default;
 
-    // Called once per frame BEFORE drawing. 
-    // This allows the cue to update its internal physics, wave states, etc.
+    // called right before the render frame.
+    // used to update physics and math shenanigans
     virtual void Update(MotionOffset current_offset, float dt, const CueParams& params) = 0;
 
-    // Called once per frame DURING the texture generation.
-    // Must implement pure Raylib drawing API calls internally.
+    // called in the middle of the texture generation.
+    // put your raylib spaghetti code here
     virtual void Draw(int overlay_width, int overlay_height) = 0;
 };
