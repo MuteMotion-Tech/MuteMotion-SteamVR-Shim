@@ -1,19 +1,24 @@
 #include "vr_sensor_bridge.hpp"
 #include <iostream>
-
+#include <cmath>
+#include "debug_sync.hpp"
 #ifdef _WIN32
 #include <windows.h>
+// function pointers for the black box DLL exports. don't touch
 typedef void* (*InitCoreFn)(double);
 typedef double (*ProcessMotionFn)(void*, SensorData, SensorData, double);
+typedef double (*ProcessMotionVRFn)(void*, double, double);
 typedef void (*CleanupCoreFn)(void*);
 
 static InitCoreFn win_init_core = nullptr;
 static ProcessMotionFn win_process_motion = nullptr;
+static ProcessMotionVRFn win_process_motion_vr = nullptr;
 static CleanupCoreFn win_cleanup_core = nullptr;
 static HMODULE hCoreLib = nullptr;
 #endif
 
-VRSensorBridge::VRSensorBridge() : m_pCoreEngine(nullptr) {
+VRSensorBridge::VRSensorBridge() : m_pCoreEngine(nullptr), m_pCoreEngineY(nullptr), m_pCoreEngineZ(nullptr) {
+    m_lastValidOffset = {0.0, 0.0, 0.0};
 }
 
 VRSensorBridge::~VRSensorBridge() {
@@ -22,29 +27,39 @@ VRSensorBridge::~VRSensorBridge() {
 
 bool VRSensorBridge::Initialize() {
 #ifdef _WIN32
+    // load the magic dll that handles the math we shouldn't leak
     hCoreLib = LoadLibraryA("mutemotion_core.dll");
     if (!hCoreLib) {
-        std::cerr << "[SensorBridge] WARNING: mutemotion_core.dll missing. bros pc has no dll 💀. falling back to mock (0.0)." << std::endl;
-        return true; // graceful fallback so we dont take steamvr down with us
+        std::cerr << "[SensorBridge] WARNING: mutemotion_core.dll missing. falling back to mock (0.0)." << std::endl;
+        return true; // fallback so we don't kill steamvr
     }
+    // fetch the functions
     win_init_core = (InitCoreFn)GetProcAddress(hCoreLib, "init_core");
     win_process_motion = (ProcessMotionFn)GetProcAddress(hCoreLib, "process_motion");
+    win_process_motion_vr = (ProcessMotionVRFn)GetProcAddress(hCoreLib, "process_motion_vr");
     win_cleanup_core = (CleanupCoreFn)GetProcAddress(hCoreLib, "cleanup_core");
     
-    if (!win_init_core || !win_process_motion || !win_cleanup_core) {
+    if (!win_init_core || !win_process_motion || !win_process_motion_vr || !win_cleanup_core) {
         std::cerr << "[SensorBridge] WARNING: mutemotion_core.dll invalid symbols. falling back to mock (0.0)." << std::endl;
         FreeLibrary(hCoreLib);
         hCoreLib = nullptr;
         return true;
     }
     
-    // boot the black box. hope it doesnt segfault.
+    // booting the engine instances. let's hope it doesn't segfault
+    // X axis (yaw) gets the first one
     m_pCoreEngine = win_init_core(1.0);
+    // Y axis (pitch)
+    m_pCoreEngineY = win_init_core(1.0);
+    // Z axis (roll) 
+    m_pCoreEngineZ = win_init_core(1.0);
 #else
-    // boot the black box (linux static link edition). hope it doesnt segfault.
+    // the black box linux version. ya it should work after compiling
     m_pCoreEngine = init_core(1.0);
+    m_pCoreEngineY = init_core(1.0);
+    m_pCoreEngineZ = init_core(1.0);
 #endif
-    if (!m_pCoreEngine) {
+    if (!m_pCoreEngine || !m_pCoreEngineY || !m_pCoreEngineZ) {
         std::cerr << "[SensorBridge] FATAL: Failed to init mutemotion_core engine. RIP." << std::endl;
         return false;
     }
@@ -52,67 +67,59 @@ bool VRSensorBridge::Initialize() {
 }
 
 MotionOffset VRSensorBridge::ProcessFrame(vr::IVRSystem* vrSystem, double dt) {
-    MotionOffset out = {0.0, 0.0};
-#ifndef _WIN32
-    if (!m_pCoreEngine || !vrSystem) return out;
-#else
-    // if windows dll didnt load, just return zeroes so we dont crash the whole compositor
-    if (!vrSystem) return out;
-#endif
+    if (!vrSystem) return m_lastValidOffset;
 
     vr::TrackedDevicePose_t trackedDevicePoses[vr::k_unMaxTrackedDeviceCount];
-    // we only care about exactly where the user is looking right now (fPredictedSecondsToPhotonsFromNow = 0.0)
+    
     vrSystem->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseStanding, 0.0f, trackedDevicePoses, vr::k_unMaxTrackedDeviceCount);
 
     const vr::TrackedDevicePose_t& hmdPose = trackedDevicePoses[vr::k_unTrackedDeviceIndex_Hmd];
     
     if (hmdPose.bPoseIsValid) {
-        // raw gyro data coming in hot (Pitch, Yaw, Roll)
-        double gyro_x = static_cast<double>(hmdPose.vAngularVelocity.v[0]);
-        double gyro_y = static_cast<double>(hmdPose.vAngularVelocity.v[1]);
-        double gyro_z = static_cast<double>(hmdPose.vAngularVelocity.v[2]);
+        // openvr sketchy values in rad/s.
+        // since the overlay is head-locked, the values are already in local-space fr.
+        // doing a matrix transform here causes massive axis crosstalk (confirmed in logs).
+        double yaw   = static_cast<double>(hmdPose.vAngularVelocity.v[1]);
+        double pitch = static_cast<double>(hmdPose.vAngularVelocity.v[0]);
+        double roll  = static_cast<double>(hmdPose.vAngularVelocity.v[2]);
 
-        // OpenVR gives us linear velocity, we pretend it's raw accel bc the filter eats it anyway
-        double accel_x = static_cast<double>(hmdPose.vVelocity.v[0]);
-        double accel_y = static_cast<double>(hmdPose.vVelocity.v[1]);
-        double accel_z = static_cast<double>(hmdPose.vVelocity.v[2]);
+        // dead zone nuke: gyros never rest at 0 so just kill this micro noise 
+        if (fabs(yaw) < 0.05) yaw = 0.0;
+        if (fabs(pitch) < 0.05) pitch = 0.0;
+        if (fabs(roll) < 0.05) roll = 0.0;
 
-        SensorData gData1 = { gyro_x, gyro_y, gyro_z };
-        SensorData aData1 = { accel_x, accel_y, accel_z };
-        
-        // the cursed axis swap strikes again (simulating Y motion)
-        SensorData gData2 = { gyro_y, gyro_x, gyro_z };
-        SensorData aData2 = { accel_y, accel_x, accel_z };
+        if (g_debugLogFile) {
+            fprintf(g_debugLogFile, "[FRAME %u] RAW_GYRO_TILT: yaw=%.4f pitch=%.4f roll=%.4f valid=%d\n", g_debugFrameCounter, yaw, pitch, roll, hmdPose.bPoseIsValid);
+        }
 
+        // feed the secret sauce engine
+        // we use three separate ones so they don't wipe each other's state
 #ifdef _WIN32
-        if (win_process_motion && m_pCoreEngine) {
-            // feed the beast. let the proprietary math do its thing.
-            double coreOutX = win_process_motion(m_pCoreEngine, gData1, aData1, dt);
-            double coreOutY = win_process_motion(m_pCoreEngine, gData2, aData2, dt);
-            out.x = coreOutX;
-            out.y = coreOutY;
-        } else {
-            // crickets 🦗
-            out.x = 0.0;
-            out.y = 0.0;
+        if (win_process_motion_vr && m_pCoreEngine && m_pCoreEngineY && m_pCoreEngineZ) {
+            m_lastValidOffset.x = win_process_motion_vr(m_pCoreEngine, yaw, dt);
+            m_lastValidOffset.y = win_process_motion_vr(m_pCoreEngineY, pitch, dt);
+            m_lastValidOffset.z = win_process_motion_vr(m_pCoreEngineZ, roll, dt);
         }
 #else
-        // feed the beast. let the proprietary math do its thing.
-        double coreOutX = process_motion(m_pCoreEngine, gData1, aData1, dt);
-        double coreOutY = process_motion(m_pCoreEngine, gData2, aData2, dt);
-        out.x = coreOutX;
-        out.y = coreOutY;
+        if (m_pCoreEngine && m_pCoreEngineY && m_pCoreEngineZ) {
+            m_lastValidOffset.x = process_motion_vr(m_pCoreEngine, yaw, dt);
+            m_lastValidOffset.y = process_motion_vr(m_pCoreEngineY, pitch, dt);
+            m_lastValidOffset.z = process_motion_vr(m_pCoreEngineZ, roll, dt);
+        }
 #endif
     }
 
-    return out;
+    return m_lastValidOffset;
 }
 
 void VRSensorBridge::Cleanup() {
     if (m_pCoreEngine) {
 #ifdef _WIN32
+        // cleanup the garbage
         if (win_cleanup_core) {
             win_cleanup_core(m_pCoreEngine);
+            if (m_pCoreEngineY) win_cleanup_core(m_pCoreEngineY);
+            if (m_pCoreEngineZ) win_cleanup_core(m_pCoreEngineZ);
         }
         if (hCoreLib) {
             FreeLibrary(hCoreLib);
@@ -120,7 +127,11 @@ void VRSensorBridge::Cleanup() {
         }
 #else
         cleanup_core(m_pCoreEngine);
+        if (m_pCoreEngineY) cleanup_core(m_pCoreEngineY);
+        if (m_pCoreEngineZ) cleanup_core(m_pCoreEngineZ);
 #endif
         m_pCoreEngine = nullptr;
+        m_pCoreEngineY = nullptr;
+        m_pCoreEngineZ = nullptr;
     }
 }
