@@ -40,18 +40,46 @@ target_include_directories(MuteMotionVR PRIVATE
 )
 
 # Link Libraries
-target_link_libraries(MuteMotionVR PRIVATE
-    raylib
-    ${openvr_SOURCE_DIR}/bin/linux64/libopenvr_api.so
-    ${CORE_LIB_DIR}/libmutemotion_core.so
-    dl
-    pthread
-)
+if(WIN32)
+    target_link_libraries(MuteMotionVR PRIVATE
+        raylib
+        ${openvr_SOURCE_DIR}/lib/win64/openvr_api.lib
+        # core engine is loaded dynamically via LoadLibrary in Windows
+    )
+else()
+    target_link_libraries(MuteMotionVR PRIVATE
+        raylib
+        ${openvr_SOURCE_DIR}/bin/linux64/libopenvr_api.so
+        ${CORE_LIB_DIR}/libmutemotion_core.so
+        dl
+        pthread
+    )
+endif()
 
 # Custom target to ensure the Core Engine builds first if we run make from this directory
-add_custom_target(build_core_engine
-    COMMAND ${CMAKE_MAKE_PROGRAM} all
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../MuteMotion-Core
-    COMMENT "Ensuring Core Engine proprietary library is built..."
-)
+if(WIN32)
+    add_custom_target(build_core_engine
+        COMMAND ${CMAKE_MAKE_PROGRAM} dll
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../MuteMotion-Core
+        COMMENT "Ensuring Core Engine proprietary library is built for Windows..."
+    )
+else()
+    add_custom_target(build_core_engine
+        COMMAND ${CMAKE_MAKE_PROGRAM} all
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../MuteMotion-Core
+        COMMENT "Ensuring Core Engine proprietary library is built..."
+    )
+endif()
 add_dependencies(MuteMotionVR build_core_engine)
+
+if(WIN32)
+    add_custom_command(TARGET MuteMotionVR POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${openvr_SOURCE_DIR}/bin/win64/openvr_api.dll"
+        $<TARGET_FILE_DIR:MuteMotionVR>
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CORE_LIB_DIR}/mutemotion_core.dll"
+        $<TARGET_FILE_DIR:MuteMotionVR>
+        COMMENT "Copying required DLLs to executable directory..."
+    )
+endif()
