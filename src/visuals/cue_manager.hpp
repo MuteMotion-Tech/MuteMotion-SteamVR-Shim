@@ -4,12 +4,15 @@
 #include <memory>
 #include "ivirtual_cue.hpp"
 
-// Forward declaration of available cues
+// declaration of all the cues the user can pick
 enum class CueType {
-    SINGLE_DOT,
+    UNINITIALIZED = -1,
+    SINGLE_DOT = 0,
     GRID,
     HORIZON,
-    LIQUID
+    LIQUID,
+    NYAN_CAT,    // premium stuff
+    DVD_BOUNCE   // early 2000s vibes
 };
 
 class CueManager {
@@ -17,13 +20,14 @@ public:
     CueManager();
     ~CueManager();
 
-    // Swaps the active visual manifestation
+    // switches the whole vibe to the new cue
     void SwitchCue(CueType type);
 
-    // Lifecycle triggers sent from main.cpp
+    // lifecycle triggers sent straight from the main loop
     void UpdateActiveCue(MotionOffset current_offset, float dt, const CueParams& params);
     void DrawActiveCue(int width, int height);
 
 private:
     std::unique_ptr<IVisualCue> m_activeCue;
+    CueType m_activeCueType = CueType::UNINITIALIZED;
 };
